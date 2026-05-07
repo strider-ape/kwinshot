@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QBuffer>
 #include <QByteArray>
+#include <QColor>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCursor>
@@ -13,6 +14,7 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPalette>
 #include <QProcess>
 #include <QScreen>
 #include <QThread>
@@ -42,6 +44,7 @@ struct Config {
     bool freeze = true;
     bool debug = false;
     int delayMs = 40;
+    QColor borderColor;
 };
 
 struct Selection {
@@ -252,10 +255,11 @@ static bool writeOutput(const QImage &image, const Config &config)
 class SelectorWindow : public QWidget
 {
 public:
-    SelectorWindow(QScreen *screen, QImage frozenBackground)
+    SelectorWindow(QScreen *screen, QImage frozenBackground, QColor borderColor)
         : QWidget(nullptr)
         , m_screenGeometry(screen ? screen->geometry() : QRect())
         , m_frozenBackground(std::move(frozenBackground))
+        , m_borderColor(std::move(borderColor))
     {
         setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool);
         setAttribute(Qt::WA_TranslucentBackground);
@@ -334,7 +338,7 @@ protected:
                 painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
             }
 
-            QPen pen(QColor(125, 211, 252, 255), 2);
+            QPen pen(m_borderColor, 2);
             pen.setCosmetic(true);
             painter.setPen(pen);
             painter.setBrush(Qt::NoBrush);
@@ -390,6 +394,7 @@ protected:
 private:
     QRect m_screenGeometry;
     QImage m_frozenBackground;
+    QColor m_borderColor;
     QPoint m_start;
     QRect m_selection;
     bool m_selecting = false;
@@ -420,14 +425,14 @@ static QImage cropFrozenSelection(const Selection &selection)
     return background.copy(sourceRect);
 }
 
-static Selection selectRegion(QScreen *screen, bool freeze, bool debug)
+static Selection selectRegion(QScreen *screen, bool freeze, const QColor &borderColor, bool debug)
 {
     QImage background;
     if (freeze && screen) {
         background = captureScreen(screen->name(), debug);
     }
 
-    SelectorWindow selector(screen, background);
+    SelectorWindow selector(screen, background, borderColor);
     selector.showFullScreen();
     selector.raise();
     selector.activateWindow();
@@ -440,6 +445,17 @@ static Selection selectRegion(QScreen *screen, bool freeze, bool debug)
     selection.screenSize = selector.screenSize();
     selection.frozenBackground = selector.frozenBackground();
     return selection;
+}
+
+static QColor defaultBorderColor(const QApplication &app)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+    const QColor accent = app.palette().color(QPalette::Accent);
+    if (accent.isValid()) {
+        return accent;
+    }
+#endif
+    return app.palette().color(QPalette::Highlight);
 }
 
 static Config parseConfig(QApplication &app)
@@ -459,6 +475,9 @@ static Config parseConfig(QApplication &app)
     QCommandLineOption delayOption(QStringLiteral("delay-ms"),
                                    QStringLiteral("Delay after selector closes before capture."),
                                    QStringLiteral("ms"));
+    QCommandLineOption borderColorOption(QStringLiteral("border-color"),
+                                         QStringLiteral("Selection border color, for example '#3daee9' or 'red'."),
+                                         QStringLiteral("color"));
     QCommandLineOption debugOption(QStringLiteral("debug"), QStringLiteral("Print debug information."));
 
     parser.addOption(fileOption);
@@ -466,13 +485,25 @@ static Config parseConfig(QApplication &app)
     parser.addOption(clipboardOption);
     parser.addOption(noFreezeOption);
     parser.addOption(delayOption);
+    parser.addOption(borderColorOption);
     parser.addOption(debugOption);
     parser.addPositionalArgument(QStringLiteral("target"), QStringLiteral("region, active-window, or fullscreen."));
     parser.process(app);
 
     Config config;
+    config.borderColor = defaultBorderColor(app);
     config.freeze = !parser.isSet(noFreezeOption);
     config.debug = parser.isSet(debugOption) || qEnvironmentVariableIsSet("KWINSHOT_DEBUG");
+
+    if (parser.isSet(borderColorOption)) {
+        const QColor color(parser.value(borderColorOption));
+        if (!color.isValid()) {
+            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                      QStringLiteral("Invalid --border-color value: %1").arg(parser.value(borderColorOption)),
+                                      1);
+        }
+        config.borderColor = color;
+    }
 
     if (parser.isSet(delayOption)) {
         bool ok = false;
@@ -523,7 +554,7 @@ int main(int argc, char **argv)
     } else if (config.target == Target::Fullscreen) {
         image = captureScreen(screen ? screen->name() : QString(), config.debug);
     } else {
-        const Selection selection = selectRegion(screen, config.freeze, config.debug);
+        const Selection selection = selectRegion(screen, config.freeze, config.borderColor, config.debug);
         if (selection.globalRect.isNull()) {
             return 0;
         }

@@ -12,6 +12,7 @@ compositor.
 - Active-window screenshots.
 - Current-screen screenshots.
 - Clipboard, file, and stdout output.
+- Theme-aware selection border with an optional color override.
 - KDE shortcut actions for each capture mode.
 
 ## Requirements
@@ -55,10 +56,13 @@ kwinshot fullscreen
 kwinshot region --file shot.png
 kwinshot region --stdout > shot.png
 kwinshot region --no-freeze
+kwinshot region --border-color '#ff44aa'
 ```
 
 By default, region screenshots are cropped from the frozen frame shown by the
 selector. Use `--no-freeze` to select and capture the live desktop instead.
+The selection border uses your Qt/KDE theme accent or highlight color by
+default. Use `--border-color` to override it for one command.
 
 Targets:
 
@@ -71,6 +75,12 @@ Outputs:
 - Clipboard is the default.
 - `--file path` writes a PNG file.
 - `--stdout` writes PNG bytes to stdout.
+
+Selector options:
+
+- `--no-freeze`: capture the live desktop after selection.
+- `--border-color color`: set the selection border color. Qt color names and
+  hex values such as `#3daee9` are supported.
 
 ## KDE shortcuts
 
