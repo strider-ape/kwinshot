@@ -85,6 +85,9 @@ selector. Use `--no-freeze` to select and capture the live desktop instead.
 The selection border uses your Qt/KDE theme accent or highlight color by
 default. Use `--border-color` to override it for one command.
 
+After selecting a region, use the small selector buttons to copy or save the
+screenshot. `Enter`/`Ctrl+C` copies, and `Ctrl+S` opens the save dialog.
+
 Targets:
 
 - `region`: select a rectangular region.
