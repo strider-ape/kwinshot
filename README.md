@@ -128,8 +128,10 @@ and not a local clone from `~/.local/share/applications`.
 - KDE Plasma Wayland only.
 - `fullscreen` currently means the current physical screen, not the whole
   virtual desktop across all monitors.
-- Cross-monitor region selections are supported, but mixed-scale monitor setups
-  may need more testing.
+- Cross-monitor region selections are supported. On mixed-scale monitor setups,
+  the selection overlay can appear offset or scaled while dragging between
+  outputs. Single-monitor selections and same-scale cross-monitor selections are
+  the most reliable.
 
 ## License
 
