@@ -16,12 +16,14 @@
 #include <QImage>
 #include <QKeyEvent>
 #include <QList>
+#include <QLockFile>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QProcess>
 #include <QSaveFile>
 #include <QScreen>
+#include <QStandardPaths>
 #include <QThread>
 #include <QVariantMap>
 #include <QWidget>
@@ -398,6 +400,15 @@ static bool saveImageWithDialog(const QImage &image)
     }
 
     return true;
+}
+
+static QString instanceLockPath()
+{
+    QString runtimePath = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+    if (runtimePath.isEmpty()) {
+        runtimePath = QDir::tempPath();
+    }
+    return QDir(runtimePath).filePath(QStringLiteral("kwinshot.lock"));
 }
 
 class SelectorWindow : public QWidget
@@ -948,6 +959,11 @@ int main(int argc, char **argv)
     QGuiApplication::setDesktopFileName(QStringLiteral("net.local.kwinshot"));
 
     Config config = parseConfig(app);
+
+    QLockFile instanceLock(instanceLockPath());
+    if (!instanceLock.tryLock(0)) {
+        return 0;
+    }
 
     QScreen *screen = QGuiApplication::screenAt(QCursor::pos());
     if (!screen) {
