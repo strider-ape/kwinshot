@@ -487,6 +487,8 @@ protected:
     void mousePressEvent(QMouseEvent *event) override
     {
         if (event->button() != Qt::LeftButton) {
+            hideSelectors();
+            qApp->quit();
             return;
         }
 
