@@ -1,9 +1,12 @@
 [Desktop Entry]
 Exec=/usr/local/bin/kwinshot
+Icon=kwinshot
 Name=KWinShot
 NoDisplay=false
 StartupNotify=false
 Type=Application
+Categories=Utility;
+Keywords=screenshot;capture;wayland;kwin;
 Actions=RegionScreenshot;ActiveWindowScreenshot;CurrentScreenScreenshot;
 X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 X-KDE-GlobalAccel-CommandShortcut=true

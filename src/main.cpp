@@ -20,6 +20,7 @@
 #include <QPainter>
 #include <QPalette>
 #include <QProcess>
+#include <QSaveFile>
 #include <QScreen>
 #include <QThread>
 #include <QVariantMap>
@@ -28,6 +29,8 @@
 
 #include <unistd.h>
 
+#include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -98,6 +101,9 @@ static bool readExact(int fd, uchar *data, qsizetype size)
 
     while (offset < size) {
         const ssize_t n = read(fd, data + offset, size - offset);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
         if (n <= 0) {
             return false;
         }
@@ -281,11 +287,32 @@ static bool writeClipboard(const QByteArray &png)
         return false;
     }
 
-    wlCopy.write(png);
+    qsizetype offset = 0;
+    while (offset < png.size()) {
+        const qint64 written = wlCopy.write(png.constData() + offset, png.size() - offset);
+        if (written < 0) {
+            std::fprintf(stderr, "kwinshot: failed to write to wl-copy: %s\n", qPrintable(wlCopy.errorString()));
+            return false;
+        }
+        if (written == 0) {
+            if (!wlCopy.waitForBytesWritten()) {
+                std::fprintf(stderr, "kwinshot: timed out writing to wl-copy: %s\n", qPrintable(wlCopy.errorString()));
+                return false;
+            }
+            continue;
+        }
+        offset += written;
+    }
+
     wlCopy.closeWriteChannel();
 
     if (!wlCopy.waitForFinished() || wlCopy.exitStatus() != QProcess::NormalExit || wlCopy.exitCode() != 0) {
-        std::fprintf(stderr, "kwinshot: wl-copy failed\n");
+        const QString error = QString::fromLocal8Bit(wlCopy.readAllStandardError()).trimmed();
+        if (error.isEmpty()) {
+            std::fprintf(stderr, "kwinshot: wl-copy failed\n");
+        } else {
+            std::fprintf(stderr, "kwinshot: wl-copy failed: %s\n", qPrintable(error));
+        }
         return false;
     }
 
@@ -294,12 +321,11 @@ static bool writeClipboard(const QByteArray &png)
 
 static bool writeOutput(const QImage &image, const Config &config)
 {
-    const QByteArray png = imageToPng(image);
-    if (png.isEmpty()) {
-        return false;
-    }
-
     if (config.output == Output::Clipboard) {
+        const QByteArray png = imageToPng(image);
+        if (png.isEmpty()) {
+            return false;
+        }
         return writeClipboard(png);
     }
 
@@ -309,25 +335,34 @@ static bool writeOutput(const QImage &image, const Config &config)
             std::fprintf(stderr, "kwinshot: failed to open stdout\n");
             return false;
         }
-        return out.write(png) == png.size();
+        if (!image.save(&out, "PNG")) {
+            std::fprintf(stderr, "kwinshot: failed to write PNG to stdout: %s\n", qPrintable(out.errorString()));
+            return false;
+        }
+        return true;
     }
 
-    QFile file(config.filePath);
+    QSaveFile file(config.filePath);
     if (!file.open(QIODevice::WriteOnly)) {
         std::fprintf(stderr, "kwinshot: failed to open output file: %s\n", qPrintable(config.filePath));
         return false;
     }
 
-    return file.write(png) == png.size();
+    if (!image.save(&file, "PNG")) {
+        std::fprintf(stderr, "kwinshot: failed to write screenshot: %s\n", qPrintable(file.errorString()));
+        return false;
+    }
+
+    if (!file.commit()) {
+        std::fprintf(stderr, "kwinshot: failed to finalize output file: %s\n", qPrintable(file.errorString()));
+        return false;
+    }
+
+    return true;
 }
 
 static bool saveImageWithDialog(const QImage &image)
 {
-    const QByteArray png = imageToPng(image);
-    if (png.isEmpty()) {
-        return false;
-    }
-
     const QString filePath = QFileDialog::getSaveFileName(
         nullptr,
         QStringLiteral("Save Screenshot"),
@@ -337,14 +372,24 @@ static bool saveImageWithDialog(const QImage &image)
         return true;
     }
 
-    QFile file(filePath);
+    const QByteArray png = imageToPng(image);
+    if (png.isEmpty()) {
+        return false;
+    }
+
+    QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly)) {
         std::fprintf(stderr, "kwinshot: failed to open output file: %s\n", qPrintable(filePath));
         return false;
     }
 
     if (file.write(png) != png.size()) {
-        std::fprintf(stderr, "kwinshot: failed to write screenshot: %s\n", qPrintable(filePath));
+        std::fprintf(stderr, "kwinshot: failed to write screenshot: %s\n", qPrintable(file.errorString()));
+        return false;
+    }
+
+    if (!file.commit()) {
+        std::fprintf(stderr, "kwinshot: failed to finalize output file: %s\n", qPrintable(file.errorString()));
         return false;
     }
 
@@ -451,7 +496,6 @@ protected:
                 finishWithAction(action);
                 return;
             }
-            return;
         }
 
         m_selectionState->selecting = true;
@@ -687,11 +731,15 @@ static QImage cropFrozenSelection(const Selection &selection)
         const double scaleX = double(screen.image.width()) / double(screen.geometry.width());
         const double scaleY = double(screen.image.height()) / double(screen.geometry.height());
 
+        const double sourceLeft = double(intersection.x() - screen.geometry.x()) * scaleX;
+        const double sourceTop = double(intersection.y() - screen.geometry.y()) * scaleY;
+        const double sourceRight = double(intersection.x() + intersection.width() - screen.geometry.x()) * scaleX;
+        const double sourceBottom = double(intersection.y() + intersection.height() - screen.geometry.y()) * scaleY;
         QRect sourceRect(
-            int((intersection.x() - screen.geometry.x()) * scaleX),
-            int((intersection.y() - screen.geometry.y()) * scaleY),
-            int(intersection.width() * scaleX),
-            int(intersection.height() * scaleY));
+            int(std::floor(sourceLeft)),
+            int(std::floor(sourceTop)),
+            int(std::ceil(sourceRight) - std::floor(sourceLeft)),
+            int(std::ceil(sourceBottom) - std::floor(sourceTop)));
         sourceRect = sourceRect.intersected(screen.image.rect());
         if (sourceRect.isNull()) {
             continue;
@@ -831,22 +879,49 @@ static Config parseConfig(QApplication &app)
     if (parser.isSet(delayOption)) {
         bool ok = false;
         const int value = parser.value(delayOption).toInt(&ok);
-        if (ok && value >= 0) {
-            config.delayMs = value;
+        if (!ok || value < 0) {
+            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                      QStringLiteral("Invalid --delay-ms value: %1").arg(parser.value(delayOption)),
+                                      1);
         }
+        config.delayMs = value;
     }
 
     const QStringList positional = parser.positionalArguments();
     const QString target = positional.isEmpty() ? QStringLiteral("region") : positional.first();
-    if (target == QStringLiteral("active-window")) {
+    if (positional.size() > 1) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("Too many positional arguments."),
+                                  1);
+    }
+
+    if (target == QStringLiteral("region")) {
+        config.target = Target::Region;
+    } else if (target == QStringLiteral("active-window")) {
         config.target = Target::ActiveWindow;
     } else if (target == QStringLiteral("fullscreen") || target == QStringLiteral("full-screen")) {
         config.target = Target::Fullscreen;
     } else {
-        config.target = Target::Region;
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("Unknown target: %1").arg(target),
+                                  1);
+    }
+
+    const int outputOptions = int(parser.isSet(fileOption))
+        + int(parser.isSet(stdoutOption))
+        + int(parser.isSet(clipboardOption));
+    if (outputOptions > 1) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("Choose only one output option."),
+                                  1);
     }
 
     if (parser.isSet(fileOption)) {
+        if (parser.value(fileOption).isEmpty()) {
+            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                      QStringLiteral("--file requires a path."),
+                                      1);
+        }
         config.output = Output::File;
         config.chooseOutput = false;
         config.filePath = parser.value(fileOption);
@@ -868,6 +943,7 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("kwinshot"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("net.local.kwinshot"));
 
     Config config = parseConfig(app);
 

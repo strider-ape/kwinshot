@@ -6,10 +6,21 @@ build_dir="${repo_dir}/build"
 prefix="/usr/local"
 binary="${prefix}/bin/kwinshot"
 desktop_file="${prefix}/share/applications/net.local.kwinshot.desktop"
+desktop_basename="net.local.kwinshot.desktop"
 
 if ! command -v cmake >/dev/null 2>&1; then
     echo "install.sh: cmake is required" >&2
     exit 1
+fi
+
+desktop_home="${HOME}"
+if (( EUID == 0 )) && [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    desktop_home="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
+fi
+user_desktop_file="${XDG_DATA_HOME:-${desktop_home}/.local/share}/applications/${desktop_basename}"
+if [[ -e "${user_desktop_file}" ]]; then
+    echo "install.sh: warning: ${user_desktop_file} may shadow the trusted system desktop file" >&2
+    echo "install.sh: remove or rename it if KDE shortcuts or screenshot authorization fail" >&2
 fi
 
 if (( EUID == 0 )); then
@@ -43,7 +54,12 @@ echo "==> Fixing ownership and permissions for KWin restricted screenshot API"
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     echo "==> Rebuilding KDE service cache"
-    kbuildsycoca6 --noincremental
+    if (( EUID == 0 )) && [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]] && command -v sudo >/dev/null 2>&1; then
+        user_id="$(id -u "${SUDO_USER}")"
+        sudo -u "${SUDO_USER}" env XDG_RUNTIME_DIR="/run/user/${user_id}" kbuildsycoca6 --noincremental
+    else
+        kbuildsycoca6 --noincremental
+    fi
 else
     echo "install.sh: kbuildsycoca6 not found; log out/in if KDE does not see KWinShot yet" >&2
 fi
