@@ -78,6 +78,7 @@ kwinshot region --file shot.png
 kwinshot region --autosave
 kwinshot region --autosave --clipboard
 kwinshot region --stdout > shot.png
+kwinshot region --include-cursor
 kwinshot region --no-freeze
 kwinshot region --border-color '#ff44aa'
 ```
@@ -107,6 +108,7 @@ Outputs:
 
 Selector options:
 
+- `--include-cursor`: include the mouse cursor in the captured image.
 - `--no-freeze`: capture the live desktop after selection.
 - `--border-color color`: set the selection border color. Qt color names and
   hex values such as `#3daee9` are supported.

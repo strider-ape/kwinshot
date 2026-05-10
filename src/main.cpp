@@ -62,6 +62,7 @@ struct Config {
     Output output = Output::Clipboard;
     QString filePath;
     bool copyToClipboard = false;
+    bool includeCursor = false;
     bool freeze = true;
     bool debug = false;
     bool chooseOutput = true;
@@ -216,18 +217,18 @@ static QImage captureWithPipe(Call call, bool debug, const char *context)
     return image;
 }
 
-static QVariantMap captureOptions()
+static QVariantMap captureOptions(bool includeCursor)
 {
     QVariantMap options;
-    options.insert(QStringLiteral("include-cursor"), false);
+    options.insert(QStringLiteral("include-cursor"), includeCursor);
     options.insert(QStringLiteral("native-resolution"), false);
     return options;
 }
 
-static QImage captureArea(const QRect &region, bool debug)
+static QImage captureArea(const QRect &region, bool includeCursor, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
-    const QVariantMap options = captureOptions();
+    const QVariantMap options = captureOptions(includeCursor);
 
     return captureWithPipe([&](int writeFd) {
         return QDBusReply<QVariantMap>(iface.call(
@@ -241,10 +242,10 @@ static QImage captureArea(const QRect &region, bool debug)
     }, debug, "area");
 }
 
-static QImage captureActiveWindow(bool debug)
+static QImage captureActiveWindow(bool includeCursor, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
-    const QVariantMap options = captureOptions();
+    const QVariantMap options = captureOptions(includeCursor);
 
     return captureWithPipe([&](int writeFd) {
         return QDBusReply<QVariantMap>(iface.call(
@@ -254,10 +255,10 @@ static QImage captureActiveWindow(bool debug)
     }, debug, "active-window");
 }
 
-static QImage captureScreen(const QString &name, bool debug)
+static QImage captureScreen(const QString &name, bool includeCursor, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
-    const QVariantMap options = captureOptions();
+    const QVariantMap options = captureOptions(includeCursor);
 
     return captureWithPipe([&](int writeFd) {
         return QDBusReply<QVariantMap>(iface.call(
@@ -838,7 +839,7 @@ static Selection selectRegion(bool freeze, const QColor &borderColor, bool choos
 
         QImage background;
         if (freeze && screen) {
-            background = captureScreen(screen->name(), debug);
+            background = captureScreen(screen->name(), false, debug);
         }
 
         auto *selector = new SelectorWindow(screen, background, borderColor, &selectionState);
@@ -905,6 +906,8 @@ static Config parseConfig(QApplication &app)
                                       QStringLiteral("Write PNG to ~/Pictures/Screenshots with a timestamped name."));
     QCommandLineOption noFreezeOption(QStringLiteral("no-freeze"),
                                        QStringLiteral("Select and capture the live desktop instead of the frozen frame."));
+    QCommandLineOption includeCursorOption(QStringLiteral("include-cursor"),
+                                           QStringLiteral("Include the mouse cursor in the screenshot."));
     QCommandLineOption delayOption(QStringLiteral("delay-ms"),
                                    QStringLiteral("Delay after selector closes before capture."),
                                    QStringLiteral("ms"));
@@ -918,6 +921,7 @@ static Config parseConfig(QApplication &app)
     parser.addOption(clipboardOption);
     parser.addOption(autosaveOption);
     parser.addOption(noFreezeOption);
+    parser.addOption(includeCursorOption);
     parser.addOption(delayOption);
     parser.addOption(borderColorOption);
     parser.addOption(debugOption);
@@ -927,6 +931,7 @@ static Config parseConfig(QApplication &app)
     Config config;
     config.borderColor = defaultBorderColor(app);
     config.freeze = !parser.isSet(noFreezeOption);
+    config.includeCursor = parser.isSet(includeCursorOption);
     config.debug = parser.isSet(debugOption) || qEnvironmentVariableIsSet("KWINSHOT_DEBUG");
 
     if (parser.isSet(borderColorOption)) {
@@ -1040,9 +1045,9 @@ int main(int argc, char **argv)
 
     QImage image;
     if (config.target == Target::ActiveWindow) {
-        image = captureActiveWindow(config.debug);
+        image = captureActiveWindow(config.includeCursor, config.debug);
     } else if (config.target == Target::Fullscreen) {
-        image = captureScreen(screen ? screen->name() : QString(), config.debug);
+        image = captureScreen(screen ? screen->name() : QString(), config.includeCursor, config.debug);
     } else {
         const Selection selection = selectRegion(config.freeze, config.borderColor, config.chooseOutput, config.debug);
         if (selection.globalRect.isNull()) {
@@ -1073,7 +1078,7 @@ int main(int argc, char **argv)
             QCoreApplication::processEvents();
             QThread::msleep(uint(config.delayMs));
             QCoreApplication::processEvents();
-            image = captureArea(selection.globalRect, config.debug);
+            image = captureArea(selection.globalRect, config.includeCursor, config.debug);
         }
 
         if (config.output == Output::SaveDialog) {
