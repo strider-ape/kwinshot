@@ -13,6 +13,7 @@ https://github.com/user-attachments/assets/d9db2974-d909-44af-84b9-8d45209eb98f
 - Region screenshots from a frozen frame by default.
 - Active-window screenshots.
 - Current-screen screenshots.
+- Whole-workspace screenshots across all outputs.
 - Multi-monitor region selections.
 - Clipboard, file, and stdout output.
 - Theme-aware selection border with an optional color override.
@@ -76,6 +77,9 @@ kwinshot active-window
 kwinshot active-window --include-decorations
 kwinshot active-window --interactive
 kwinshot fullscreen
+kwinshot fullscreen --screen eDP-1
+kwinshot workspace
+kwinshot workspace --native-resolution
 kwinshot region --file shot.png
 kwinshot region --autosave
 kwinshot region --autosave --clipboard
@@ -99,6 +103,7 @@ Targets:
 - `region`: select a rectangular region.
 - `active-window`: capture the active window, or pick a window with `--interactive`.
 - `fullscreen`: capture the active screen immediately, or pick a screen with `--interactive`.
+- `workspace`: capture the whole virtual desktop across all outputs.
 
 Outputs:
 
@@ -111,8 +116,10 @@ Outputs:
 Selector options:
 
 - `--interactive`: use KWin's picker for supported targets.
+- `--screen name`: capture a named output with the `fullscreen` target.
 - `--include-cursor`: include the mouse cursor in the captured image.
 - `--include-decoration`/`--include-decorations`: include window decorations in active-window captures.
+- `--native-resolution`: ask KWin for native output resolution instead of logical resolution for non-region targets.
 - `--no-freeze`: capture the live desktop after selection.
 - `--border-color color`: set the selection border color. Qt color names and
   hex values such as `#3daee9` are supported.
@@ -145,8 +152,8 @@ shadowing the installed system entry.
 ## Limitations
 
 - KDE Plasma Wayland only.
-- `fullscreen` currently means the current physical screen, not the whole
-  virtual desktop across all monitors.
+- `fullscreen` means one physical screen. Use `workspace` for the whole virtual
+  desktop across all monitors.
 - Cross-monitor region selections are supported. On mixed-scale monitor setups,
   the selection overlay can appear offset or scaled while dragging between
   outputs. Single-monitor selections and same-scale cross-monitor selections are

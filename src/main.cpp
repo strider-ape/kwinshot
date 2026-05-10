@@ -41,6 +41,7 @@ enum class Target {
     Region,
     ActiveWindow,
     Fullscreen,
+    Workspace,
 };
 
 enum class Output {
@@ -61,9 +62,11 @@ struct Config {
     Target target = Target::Region;
     Output output = Output::Clipboard;
     QString filePath;
+    QString screenName;
     bool copyToClipboard = false;
     bool includeCursor = false;
     bool includeDecoration = false;
+    bool nativeResolution = false;
     bool interactive = false;
     bool freeze = true;
     bool debug = false;
@@ -219,12 +222,12 @@ static QImage captureWithPipe(Call call, bool debug, const char *context)
     return image;
 }
 
-static QVariantMap captureOptions(bool includeCursor, bool includeDecoration = false)
+static QVariantMap captureOptions(bool includeCursor, bool includeDecoration = false, bool nativeResolution = false)
 {
     QVariantMap options;
     options.insert(QStringLiteral("include-cursor"), includeCursor);
     options.insert(QStringLiteral("include-decoration"), includeDecoration);
-    options.insert(QStringLiteral("native-resolution"), false);
+    options.insert(QStringLiteral("native-resolution"), nativeResolution);
     return options;
 }
 
@@ -245,10 +248,10 @@ static QImage captureArea(const QRect &region, bool includeCursor, bool debug)
     }, debug, "area");
 }
 
-static QImage captureActiveWindow(bool includeCursor, bool includeDecoration, bool debug)
+static QImage captureActiveWindow(bool includeCursor, bool includeDecoration, bool nativeResolution, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
-    const QVariantMap options = captureOptions(includeCursor, includeDecoration);
+    const QVariantMap options = captureOptions(includeCursor, includeDecoration, nativeResolution);
 
     return captureWithPipe([&](int writeFd) {
         return QDBusReply<QVariantMap>(iface.call(
@@ -258,10 +261,10 @@ static QImage captureActiveWindow(bool includeCursor, bool includeDecoration, bo
     }, debug, "active-window");
 }
 
-static QImage captureScreen(const QString &name, bool includeCursor, bool debug)
+static QImage captureScreen(const QString &name, bool includeCursor, bool nativeResolution, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
-    const QVariantMap options = captureOptions(includeCursor);
+    const QVariantMap options = captureOptions(includeCursor, false, nativeResolution);
 
     return captureWithPipe([&](int writeFd) {
         return QDBusReply<QVariantMap>(iface.call(
@@ -272,10 +275,10 @@ static QImage captureScreen(const QString &name, bool includeCursor, bool debug)
     }, debug, "screen");
 }
 
-static QImage captureActiveScreen(bool includeCursor, bool debug)
+static QImage captureActiveScreen(bool includeCursor, bool nativeResolution, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
-    const QVariantMap options = captureOptions(includeCursor);
+    const QVariantMap options = captureOptions(includeCursor, false, nativeResolution);
 
     return captureWithPipe([&](int writeFd) {
         return QDBusReply<QVariantMap>(iface.call(
@@ -285,10 +288,23 @@ static QImage captureActiveScreen(bool includeCursor, bool debug)
     }, debug, "active-screen");
 }
 
-static QImage captureInteractive(uint kind, bool includeCursor, bool includeDecoration, bool debug)
+static QImage captureWorkspace(bool includeCursor, bool nativeResolution, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
-    const QVariantMap options = captureOptions(includeCursor, includeDecoration);
+    const QVariantMap options = captureOptions(includeCursor, false, nativeResolution);
+
+    return captureWithPipe([&](int writeFd) {
+        return QDBusReply<QVariantMap>(iface.call(
+            QStringLiteral("CaptureWorkspace"),
+            options,
+            QVariant::fromValue(QDBusUnixFileDescriptor(writeFd))));
+    }, debug, "workspace");
+}
+
+static QImage captureInteractive(uint kind, bool includeCursor, bool includeDecoration, bool nativeResolution, bool debug)
+{
+    QDBusInterface iface = screenshotInterface();
+    const QVariantMap options = captureOptions(includeCursor, includeDecoration, nativeResolution);
 
     return captureWithPipe([&](int writeFd) {
         return QDBusReply<QVariantMap>(iface.call(
@@ -869,7 +885,7 @@ static Selection selectRegion(bool freeze, const QColor &borderColor, bool choos
 
         QImage background;
         if (freeze && screen) {
-            background = captureScreen(screen->name(), false, debug);
+            background = captureScreen(screen->name(), false, false, debug);
         }
 
         auto *selector = new SelectorWindow(screen, background, borderColor, &selectionState);
@@ -943,6 +959,11 @@ static Config parseConfig(QApplication &app)
                                                    QStringLiteral("include-decorations"),
                                                },
                                                QStringLiteral("Include window decorations in window screenshots."));
+    QCommandLineOption nativeResolutionOption(QStringLiteral("native-resolution"),
+                                              QStringLiteral("Capture non-region targets in native output resolution when KWin supports it."));
+    QCommandLineOption screenOption(QStringLiteral("screen"),
+                                    QStringLiteral("Capture a named screen/output with the fullscreen target."),
+                                    QStringLiteral("name"));
     QCommandLineOption interactiveOption(QStringLiteral("interactive"),
                                          QStringLiteral("Use KWin's interactive picker for supported targets."));
     QCommandLineOption delayOption(QStringLiteral("delay-ms"),
@@ -960,11 +981,13 @@ static Config parseConfig(QApplication &app)
     parser.addOption(noFreezeOption);
     parser.addOption(includeCursorOption);
     parser.addOption(includeDecorationOption);
+    parser.addOption(nativeResolutionOption);
+    parser.addOption(screenOption);
     parser.addOption(interactiveOption);
     parser.addOption(delayOption);
     parser.addOption(borderColorOption);
     parser.addOption(debugOption);
-    parser.addPositionalArgument(QStringLiteral("target"), QStringLiteral("region, active-window, or fullscreen."));
+    parser.addPositionalArgument(QStringLiteral("target"), QStringLiteral("region, active-window, fullscreen, or workspace."));
     parser.process(app);
 
     Config config;
@@ -972,6 +995,8 @@ static Config parseConfig(QApplication &app)
     config.freeze = !parser.isSet(noFreezeOption);
     config.includeCursor = parser.isSet(includeCursorOption);
     config.includeDecoration = parser.isSet(includeDecorationOption);
+    config.nativeResolution = parser.isSet(nativeResolutionOption);
+    config.screenName = parser.value(screenOption);
     config.interactive = parser.isSet(interactiveOption);
     config.debug = parser.isSet(debugOption) || qEnvironmentVariableIsSet("KWINSHOT_DEBUG");
 
@@ -1010,13 +1035,15 @@ static Config parseConfig(QApplication &app)
         config.target = Target::ActiveWindow;
     } else if (target == QStringLiteral("fullscreen") || target == QStringLiteral("full-screen")) {
         config.target = Target::Fullscreen;
+    } else if (target == QStringLiteral("workspace")) {
+        config.target = Target::Workspace;
     } else {
         parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
                                   QStringLiteral("Unknown target: %1").arg(target),
                                   1);
     }
 
-    if (config.interactive && config.target == Target::Region) {
+    if (config.interactive && config.target != Target::ActiveWindow && config.target != Target::Fullscreen) {
         parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
                                   QStringLiteral("--interactive is only supported with active-window and fullscreen."),
                                   1);
@@ -1025,6 +1052,30 @@ static Config parseConfig(QApplication &app)
     if (config.includeDecoration && config.target != Target::ActiveWindow) {
         parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
                                   QStringLiteral("--include-decoration is only supported with active-window."),
+                                  1);
+    }
+
+    if (config.nativeResolution && config.target == Target::Region) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--native-resolution is not supported with region."),
+                                  1);
+    }
+
+    if (!config.screenName.isEmpty() && config.target != Target::Fullscreen) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--screen is only supported with fullscreen."),
+                                  1);
+    }
+
+    if (parser.isSet(screenOption) && config.screenName.isEmpty()) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--screen requires a name."),
+                                  1);
+    }
+
+    if (!config.screenName.isEmpty() && config.interactive) {
+        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+                                  QStringLiteral("--screen cannot be combined with --interactive."),
                                   1);
     }
 
@@ -1094,18 +1145,25 @@ int main(int argc, char **argv)
     QImage image;
     if (config.target == Target::ActiveWindow) {
         if (config.interactive) {
-            image = captureInteractive(0, config.includeCursor, config.includeDecoration, config.debug);
+            image = captureInteractive(0, config.includeCursor, config.includeDecoration, config.nativeResolution, config.debug);
         } else {
-            image = captureActiveWindow(config.includeCursor, config.includeDecoration, config.debug);
+            image = captureActiveWindow(config.includeCursor, config.includeDecoration, config.nativeResolution, config.debug);
         }
     } else if (config.target == Target::Fullscreen) {
         if (config.interactive) {
-            image = captureInteractive(1, config.includeCursor, false, config.debug);
+            image = captureInteractive(1, config.includeCursor, false, config.nativeResolution, config.debug);
+        } else if (!config.screenName.isEmpty()) {
+            image = captureScreen(config.screenName, config.includeCursor, config.nativeResolution, config.debug);
         } else {
-            image = captureActiveScreen(config.includeCursor, config.debug);
+            image = captureActiveScreen(config.includeCursor, config.nativeResolution, config.debug);
         }
+    } else if (config.target == Target::Workspace) {
+        image = captureWorkspace(config.includeCursor, config.nativeResolution, config.debug);
     } else {
-        const Selection selection = selectRegion(config.freeze, config.borderColor, config.chooseOutput, config.debug);
+        const Selection selection = selectRegion(config.freeze,
+                                                 config.borderColor,
+                                                 config.chooseOutput,
+                                                 config.debug);
         if (selection.globalRect.isNull()) {
             return 0;
         }
