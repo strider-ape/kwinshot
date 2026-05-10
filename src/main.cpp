@@ -269,6 +269,20 @@ static QImage captureScreen(const QString &name, bool includeCursor, bool debug)
     }, debug, "screen");
 }
 
+static QImage captureInteractive(uint kind, bool includeCursor, bool debug)
+{
+    QDBusInterface iface = screenshotInterface();
+    const QVariantMap options = captureOptions(includeCursor);
+
+    return captureWithPipe([&](int writeFd) {
+        return QDBusReply<QVariantMap>(iface.call(
+            QStringLiteral("CaptureInteractive"),
+            kind,
+            options,
+            QVariant::fromValue(QDBusUnixFileDescriptor(writeFd))));
+    }, debug, "interactive");
+}
+
 static QByteArray imageToPng(const QImage &image)
 {
     QByteArray png;
@@ -1038,16 +1052,11 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    QScreen *screen = QGuiApplication::screenAt(QCursor::pos());
-    if (!screen) {
-        screen = QGuiApplication::primaryScreen();
-    }
-
     QImage image;
     if (config.target == Target::ActiveWindow) {
         image = captureActiveWindow(config.includeCursor, config.debug);
     } else if (config.target == Target::Fullscreen) {
-        image = captureScreen(screen ? screen->name() : QString(), config.includeCursor, config.debug);
+        image = captureInteractive(1, config.includeCursor, config.debug);
     } else {
         const Selection selection = selectRegion(config.freeze, config.borderColor, config.chooseOutput, config.debug);
         if (selection.globalRect.isNull()) {

@@ -96,7 +96,7 @@ Targets:
 
 - `region`: select a rectangular region.
 - `active-window`: capture the active window.
-- `fullscreen`: capture the current screen under the cursor.
+- `fullscreen`: capture a screen using KWin's interactive screen picker.
 
 Outputs:
 
