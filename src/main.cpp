@@ -272,6 +272,19 @@ static QImage captureScreen(const QString &name, bool includeCursor, bool debug)
     }, debug, "screen");
 }
 
+static QImage captureActiveScreen(bool includeCursor, bool debug)
+{
+    QDBusInterface iface = screenshotInterface();
+    const QVariantMap options = captureOptions(includeCursor);
+
+    return captureWithPipe([&](int writeFd) {
+        return QDBusReply<QVariantMap>(iface.call(
+            QStringLiteral("CaptureActiveScreen"),
+            options,
+            QVariant::fromValue(QDBusUnixFileDescriptor(writeFd))));
+    }, debug, "active-screen");
+}
+
 static QImage captureInteractive(uint kind, bool includeCursor, bool includeDecoration, bool debug)
 {
     QDBusInterface iface = screenshotInterface();
@@ -1086,7 +1099,11 @@ int main(int argc, char **argv)
             image = captureActiveWindow(config.includeCursor, config.includeDecoration, config.debug);
         }
     } else if (config.target == Target::Fullscreen) {
-        image = captureInteractive(1, config.includeCursor, false, config.debug);
+        if (config.interactive) {
+            image = captureInteractive(1, config.includeCursor, false, config.debug);
+        } else {
+            image = captureActiveScreen(config.includeCursor, config.debug);
+        }
     } else {
         const Selection selection = selectRegion(config.freeze, config.borderColor, config.chooseOutput, config.debug);
         if (selection.globalRect.isNull()) {
