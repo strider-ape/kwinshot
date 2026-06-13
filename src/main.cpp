@@ -1326,7 +1326,7 @@ int main(int argc, char **argv)
 
         if (config.chooseOutput) {
             if (selection.action == SelectionAction::Save) {
-                config.output = Output::SaveDialog;
+                config.output = Output::Autosave;
             } else {
                 config.output = Output::Clipboard;
             }
