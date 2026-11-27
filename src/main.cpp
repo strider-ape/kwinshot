@@ -1,3 +1,6 @@
+#include <cstdio>
+#include <cstdlib>
+
 #include <QApplication>
 #include <QBuffer>
 #include <QByteArray>
@@ -108,6 +111,14 @@ struct SelectionState {
     bool accepted = false;
     SelectionAction action = SelectionAction::None;
 };
+
+// QCommandLineParser::showMessageAndExit() needs Qt 6.9; Debian 13 has Qt 6.8.
+// This does the same for an error on any Qt 6. (Branch qt-6.8.)
+[[noreturn]] static void usageError(const QString &message, int exitCode)
+{
+    std::fputs(qPrintable(message + QLatin1Char('\n')), stderr);
+    std::exit(exitCode);
+}
 
 static QRect normalizedSelectionRect(const QPoint &start, const QPoint &current)
 {
@@ -1114,7 +1125,7 @@ static Config parseConfig(QApplication &app)
 
     if (parser.isSet(autosaveDirOption)) {
         if (parser.value(autosaveDirOption).isEmpty()) {
-            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+            usageError(
                                       QStringLiteral("--autosave-dir requires a path."),
                                       1);
         }
@@ -1124,12 +1135,12 @@ static Config parseConfig(QApplication &app)
     if (parser.isSet(autosaveTemplateOption)) {
         const QString value = parser.value(autosaveTemplateOption);
         if (value.isEmpty()) {
-            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+            usageError(
                                       QStringLiteral("--autosave-template requires a value."),
                                       1);
         }
         if (value.contains(QLatin1Char('/'))) {
-            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+            usageError(
                                       QStringLiteral("--autosave-template must be a filename, not a path."),
                                       1);
         }
@@ -1139,7 +1150,7 @@ static Config parseConfig(QApplication &app)
     if (parser.isSet(borderColorOption)) {
         const QColor color(parser.value(borderColorOption));
         if (!color.isValid()) {
-            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+            usageError(
                                       QStringLiteral("Invalid --border-color value: %1").arg(parser.value(borderColorOption)),
                                       1);
         }
@@ -1150,7 +1161,7 @@ static Config parseConfig(QApplication &app)
         bool ok = false;
         const int value = parser.value(delayOption).toInt(&ok);
         if (!ok || value < 0) {
-            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+            usageError(
                                       QStringLiteral("Invalid --delay-ms value: %1").arg(parser.value(delayOption)),
                                       1);
         }
@@ -1160,7 +1171,7 @@ static Config parseConfig(QApplication &app)
     const QStringList positional = parser.positionalArguments();
     const QString target = positional.isEmpty() ? QStringLiteral("region") : positional.first();
     if (positional.size() > 1) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("Too many positional arguments."),
                                   1);
     }
@@ -1174,50 +1185,50 @@ static Config parseConfig(QApplication &app)
     } else if (target == QStringLiteral("workspace")) {
         config.target = Target::Workspace;
     } else {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("Unknown target: %1").arg(target),
                                   1);
     }
 
     if (config.interactive && config.target != Target::ActiveWindow && config.target != Target::Fullscreen) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--interactive is only supported with active-window and fullscreen."),
                                   1);
     }
 
     if (config.includeDecoration && config.target != Target::ActiveWindow) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--include-decoration is only supported with active-window."),
                                   1);
     }
 
     if (config.nativeResolution && config.target == Target::Region) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--native-resolution is not supported with region."),
                                   1);
     }
 
     if (!config.screenName.isEmpty() && config.target != Target::Fullscreen) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--screen is only supported with fullscreen."),
                                   1);
     }
 
     if (parser.isSet(screenOption) && config.screenName.isEmpty()) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--screen requires a name."),
                                   1);
     }
 
     if (!config.screenName.isEmpty() && config.interactive) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--screen cannot be combined with --interactive."),
                                   1);
     }
 
     const int fileOutputOptions = int(parser.isSet(fileOption)) + int(parser.isSet(autosaveOption));
     if (fileOutputOptions > 1) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("Choose only one file output option."),
                                   1);
     }
@@ -1226,31 +1237,31 @@ static Config parseConfig(QApplication &app)
         + int(parser.isSet(stdoutOption))
         + int(parser.isSet(autosaveOption));
     if (outputOptions > 1) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("Choose only one output option."),
                                   1);
     }
 
     if (parser.isSet(stdoutOption) && parser.isSet(clipboardOption)) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--stdout cannot be combined with --clipboard."),
                                   1);
     }
 
     if ((parser.isSet(autosaveDirOption) || parser.isSet(autosaveTemplateOption)) && !parser.isSet(autosaveOption)) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--autosave-dir and --autosave-template require --autosave."),
                                   1);
     }
 
     if (config.printPath && !parser.isSet(fileOption) && !parser.isSet(autosaveOption)) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--print-path requires --file or --autosave."),
                                   1);
     }
 
     if (config.printPath && parser.isSet(stdoutOption)) {
-        parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+        usageError(
                                   QStringLiteral("--print-path cannot be combined with --stdout."),
                                   1);
     }
@@ -1259,7 +1270,7 @@ static Config parseConfig(QApplication &app)
 
     if (parser.isSet(fileOption)) {
         if (parser.value(fileOption).isEmpty()) {
-            parser.showMessageAndExit(QCommandLineParser::MessageType::Error,
+            usageError(
                                       QStringLiteral("--file requires a path."),
                                       1);
         }
